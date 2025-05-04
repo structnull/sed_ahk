@@ -62,10 +62,13 @@ GoToNextDesktop() {
 }
 
 GoToDesktopNumber(num) {
+    ; fix losing focus when switching desktops, https://www.reddit.com/r/AutoHotkey/comments/qvkjhh/comment/hkx42s7
+    DllCall("User32\AllowSetForegroundWindow", "Int",-1)
     global GoToDesktopNumberProc
     DllCall(GoToDesktopNumberProc, "Int", num, "Int")
     return
 }
+
 MoveOrGotoDesktopNumber(num) {
     ; If user is holding down Mouse left button, move the current window also
     if (GetKeyState("LButton")) {
