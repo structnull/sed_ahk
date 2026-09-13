@@ -1,133 +1,173 @@
 ﻿#Requires AutoHotkey v2.0
-; AutoHotkey v2 script
-SetWorkingDir(A_ScriptDir)
 
-; Path to the DLL, relative to the script
-VDA_PATH := A_ScriptDir . "\dll\VirtualDesktopAccessor.dll"
-hVirtualDesktopAccessor := DllCall("LoadLibrary", "Str", VDA_PATH, "Ptr")
+SetWorkingDir A_ScriptDir
 
-GetDesktopCountProc := DllCall("GetProcAddress", "Ptr", hVirtualDesktopAccessor, "AStr", "GetDesktopCount", "Ptr")
-GoToDesktopNumberProc := DllCall("GetProcAddress", "Ptr", hVirtualDesktopAccessor, "AStr", "GoToDesktopNumber", "Ptr")
-GetCurrentDesktopNumberProc := DllCall("GetProcAddress", "Ptr", hVirtualDesktopAccessor, "AStr", "GetCurrentDesktopNumber", "Ptr")
-IsWindowOnCurrentVirtualDesktopProc := DllCall("GetProcAddress", "Ptr", hVirtualDesktopAccessor, "AStr", "IsWindowOnCurrentVirtualDesktop", "Ptr")
-IsWindowOnDesktopNumberProc := DllCall("GetProcAddress", "Ptr", hVirtualDesktopAccessor, "AStr", "IsWindowOnDesktopNumber", "Ptr")
-MoveWindowToDesktopNumberProc := DllCall("GetProcAddress", "Ptr", hVirtualDesktopAccessor, "AStr", "MoveWindowToDesktopNumber", "Ptr")
-IsPinnedWindowProc := DllCall("GetProcAddress", "Ptr", hVirtualDesktopAccessor, "AStr", "IsPinnedWindow", "Ptr")
-GetDesktopNameProc := DllCall("GetProcAddress", "Ptr", hVirtualDesktopAccessor, "AStr", "GetDesktopName", "Ptr")
-SetDesktopNameProc := DllCall("GetProcAddress", "Ptr", hVirtualDesktopAccessor, "AStr", "SetDesktopName", "Ptr")
-CreateDesktopProc := DllCall("GetProcAddress", "Ptr", hVirtualDesktopAccessor, "AStr", "CreateDesktop", "Ptr")
-RemoveDesktopProc := DllCall("GetProcAddress", "Ptr", hVirtualDesktopAccessor, "AStr", "RemoveDesktop", "Ptr")
 
-; On change listeners
-RegisterPostMessageHookProc := DllCall("GetProcAddress", "Ptr", hVirtualDesktopAccessor, "AStr", "RegisterPostMessageHook", "Ptr")
-UnregisterPostMessageHookProc := DllCall("GetProcAddress", "Ptr", hVirtualDesktopAccessor, "AStr", "UnregisterPostMessageHook", "Ptr")
+; =====================================
+; Virtual Desktop Accessor Setup
+; =====================================
+
+VDA_PATH := A_ScriptDir "\dll\VirtualDesktopAccessor.dll"
+
+if !FileExist(VDA_PATH) {
+    MsgBox "VirtualDesktopAccessor.dll not found:`n" VDA_PATH
+    ExitApp
+}
+
+hVirtualDesktopAccessor := DllCall(
+    "LoadLibrary",
+    "Str",
+    VDA_PATH,
+    "Ptr"
+)
+
+if !hVirtualDesktopAccessor {
+    MsgBox "Failed to load VirtualDesktopAccessor.dll"
+    ExitApp
+}
+
+
+GetProc(name) {
+    global hVirtualDesktopAccessor
+
+    proc := DllCall(
+        "GetProcAddress",
+        "Ptr",
+        hVirtualDesktopAccessor,
+        "AStr",
+        name,
+        "Ptr"
+    )
+
+    if !proc
+        MsgBox "Missing DLL function: " name
+
+    return proc
+}
+
+
+GetDesktopCountProc := GetProc("GetDesktopCount")
+GoToDesktopNumberProc := GetProc("GoToDesktopNumber")
+GetCurrentDesktopNumberProc := GetProc("GetCurrentDesktopNumber")
+MoveWindowToDesktopNumberProc := GetProc("MoveWindowToDesktopNumber")
+
+RegisterPostMessageHookProc := GetProc("RegisterPostMessageHook")
+UnregisterPostMessageHookProc := GetProc("UnregisterPostMessageHook")
+
+
+; =====================================
+; Desktop Functions
+; =====================================
 
 GetDesktopCount() {
     global GetDesktopCountProc
-    count := DllCall(GetDesktopCountProc, "Int")
-    return count
+
+    return DllCall(
+        GetDesktopCountProc,
+        "Int"
+    )
 }
 
-MoveCurrentWindowToDesktop(number) {
-    global MoveWindowToDesktopNumberProc, GoToDesktopNumberProc
-    activeHwnd := WinGetID("A")
-    DllCall(MoveWindowToDesktopNumberProc, "Ptr", activeHwnd, "Int", number, "Int")
-    DllCall(GoToDesktopNumberProc, "Int", number, "Int")
-}
-
-GoToPrevDesktop() {
-    global GetCurrentDesktopNumberProc, GoToDesktopNumberProc
-    current := DllCall(GetCurrentDesktopNumberProc, "Int")
-    last_desktop := GetDesktopCount() - 1
-    ; If current desktop is 0, go to last desktop
-    if (current = 0) {
-        MoveOrGotoDesktopNumber(last_desktop)
-    } else {
-        MoveOrGotoDesktopNumber(current - 1)
-    }
-    return
-}
-
-GoToNextDesktop() {
-    global GetCurrentDesktopNumberProc, GoToDesktopNumberProc
-    current := DllCall(GetCurrentDesktopNumberProc, "Int")
-    last_desktop := GetDesktopCount() - 1
-    ; If current desktop is last, go to first desktop
-    if (current = last_desktop) {
-        MoveOrGotoDesktopNumber(0)
-    } else {
-        MoveOrGotoDesktopNumber(current + 1)
-    }
-    return
-}
 
 GoToDesktopNumber(num) {
-    ; fix losing focus when switching desktops, https://www.reddit.com/r/AutoHotkey/comments/qvkjhh/comment/hkx42s7
-    DllCall("User32\AllowSetForegroundWindow", "Int",-1)
     global GoToDesktopNumberProc
-    DllCall(GoToDesktopNumberProc, "Int", num, "Int")
-    return
+
+    ; Fix focus issue after switching desktops
+    DllCall(
+        "User32\AllowSetForegroundWindow",
+        "Int",
+        -1
+    )
+
+    DllCall(
+        GoToDesktopNumberProc,
+        "Int",
+        num
+    )
 }
 
-MoveOrGotoDesktopNumber(num) {
-    ; If user is holding down Mouse left button, move the current window also
-    if (GetKeyState("LButton")) {
-        MoveCurrentWindowToDesktop(num)
-    } else {
-        GoToDesktopNumber(num)
-    }
-    return
-}
-GetDesktopName(num) {
-    global GetDesktopNameProc
-    utf8_buffer := Buffer(1024, 0)
-    ran := DllCall(GetDesktopNameProc, "Int", num, "Ptr", utf8_buffer, "Ptr", utf8_buffer.Size, "Int")
-    name := StrGet(utf8_buffer, 1024, "UTF-8")
-    return name
-}
-SetDesktopName(num, name) {
-    global SetDesktopNameProc
-    OutputDebug(name)
-    name_utf8 := Buffer(1024, 0)
-    StrPut(name, name_utf8, "UTF-8")
-    ran := DllCall(SetDesktopNameProc, "Int", num, "Ptr", name_utf8, "Int")
-    return ran
-}
-CreateDesktop() {
-    global CreateDesktopProc
-    ran := DllCall(CreateDesktopProc, "Int")
-    return ran
-}
-RemoveDesktop(remove_desktop_number, fallback_desktop_number) {
-    global RemoveDesktopProc
-    ran := DllCall(RemoveDesktopProc, "Int", remove_desktop_number, "Int", fallback_desktop_number, "Int")
-    return ran
+
+MoveCurrentWindowToDesktop(num) {
+
+    global MoveWindowToDesktopNumberProc
+
+    hwnd := WinGetID("A")
+
+    if !hwnd
+        return
+
+
+    DllCall(
+        MoveWindowToDesktopNumberProc,
+        "Ptr",
+        hwnd,
+        "Int",
+        num
+    )
+
+    ; Hyprland style:
+    ; move window + follow workspace
+    GoToDesktopNumber(num)
 }
 
-; SetDesktopName(0, "It works! 🐱")
 
-DllCall(RegisterPostMessageHookProc, "Ptr", A_ScriptHwnd, "Int", 0x1400 + 30, "Int")
-OnMessage(0x1400 + 30, OnChangeDesktop)
-OnChangeDesktop(wParam, lParam, msg, hwnd) {
-    Critical(1)
-    OldDesktop := wParam + 1
-    NewDesktop := lParam + 1
-    Name := GetDesktopName(NewDesktop - 1)
+; =====================================
+; Desktop Change Listener
+; =====================================
 
-    ; Use Dbgview.exe to checkout the output debug logs
-    OutputDebug("Desktop changed to " Name " from " OldDesktop " to " NewDesktop)
-    ; TraySetIcon(".\Icons\icon" NewDesktop ".ico")
+WM_DESKTOP_CHANGED := 0x1400 + 30
+
+
+DllCall(
+    RegisterPostMessageHookProc,
+    "Ptr",
+    A_ScriptHwnd,
+    "Int",
+    WM_DESKTOP_CHANGED
+)
+
+
+OnMessage(
+    WM_DESKTOP_CHANGED,
+    DesktopChanged
+)
+
+
+DesktopChanged(wParam, lParam, msg, hwnd) {
+
+    oldDesktop := wParam + 1
+    newDesktop := lParam + 1
+
+    OutputDebug(
+        "Desktop changed "
+        oldDesktop
+        " -> "
+        newDesktop
+    )
 }
 
-!1::GotoDesktopNumber(0)
-!2::GotoDesktopNumber(1)
-!3::GotoDesktopNumber(2)
-!4::GotoDesktopNumber(3)
-!5::GotoDesktopNumber(4)
-!6::GotoDesktopNumber(5)
-!7::GotoDesktopNumber(6)
-!8::GotoDesktopNumber(7)
-!9::GotoDesktopNumber(8)
+
+; =====================================
+; Hyprland Style Workspaces
+;
+; Alt + number
+;      switch workspace
+;
+; Alt + Shift + number
+;      move window to workspace
+; =====================================
+
+
+!1::GoToDesktopNumber(0)
+!2::GoToDesktopNumber(1)
+!3::GoToDesktopNumber(2)
+!4::GoToDesktopNumber(3)
+!5::GoToDesktopNumber(4)
+!6::GoToDesktopNumber(5)
+!7::GoToDesktopNumber(6)
+!8::GoToDesktopNumber(7)
+!9::GoToDesktopNumber(8)
+
 
 !+1::MoveCurrentWindowToDesktop(0)
 !+2::MoveCurrentWindowToDesktop(1)
@@ -140,22 +180,90 @@ OnChangeDesktop(wParam, lParam, msg, hwnd) {
 !+9::MoveCurrentWindowToDesktop(8)
 
 
-; Close active window
+
+; =====================================
+; Window Controls
+; =====================================
+
+; Close window
 !q::Send "!{F4}"
 
-; Media controls
+
+
+; =====================================
+; Media Controls
+; =====================================
+
 !,::Send "{Media_Prev}"
 !.::Send "{Media_Play_Pause}"
 !/::Send "{Media_Next}"
+
 !Numpad4::Send "{Media_Prev}"
 !Numpad5::Send "{Media_Play_Pause}"
 !Numpad6::Send "{Media_Next}"
 
-; Launch applications
-#f::Run "Firefox"
+
+
+; =====================================
+; Applications
+; =====================================
+
+
+HELIUM := "C:\Users\adharsh\AppData\Local\imput\Helium\Application\chrome.exe"
+
+
+; Win + F -> Helium Browser
+#f::{
+    global HELIUM
+
+    if FileExist(HELIUM)
+        Run HELIUM
+    else
+        MsgBox "Helium browser not found:`n" HELIUM
+}
+
+
+; Win + Enter -> Windows Terminal
 #Enter::Run "wt.exe"
 
-; Volume control
+
+
+; =====================================
+; Volume
+; =====================================
+
 !NumpadAdd::Send "{Volume_Up}"
 !NumpadSub::Send "{Volume_Down}"
 
+
+
+; =====================================
+; Cleanup
+; =====================================
+
+OnExit(Cleanup)
+
+
+Cleanup(*) {
+
+    global UnregisterPostMessageHookProc
+    global hVirtualDesktopAccessor
+
+
+    try {
+        DllCall(
+            UnregisterPostMessageHookProc,
+            "Ptr",
+            A_ScriptHwnd
+        )
+    }
+
+
+    try {
+        DllCall(
+            "FreeLibrary",
+            "Ptr",
+            hVirtualDesktopAccessor
+        )
+    }
+}
